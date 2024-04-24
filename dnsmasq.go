@@ -55,9 +55,8 @@ func main() {
 	flag.Parse()
 
 	var (
-		dnsClient = &dns.Client{
-		}
-		cfg = collector.Config{
+		dnsClient = &dns.Client{}
+		cfg       = collector.Config{
 			DnsClient:    dnsClient,
 			DnsmasqAddr:  *dnsmasqAddr,
 			LeasesPath:   *leasesPath,

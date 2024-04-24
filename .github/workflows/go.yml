@@ -13,18 +13,33 @@ jobs:
     steps:
     - uses: actions/checkout@v2
 
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+
+    - name: install dnsmasq
+      run: apt update && apt install -y dnsmasq
+
     - name: Ensure all files were formatted as per gofmt
       run: |
         [ "$(gofmt -l $(find . -name '*.go') 2>&1)" = "" ]
 
-    - name: install binaries
-      run: go install github.com/google/dnsmasq_exporter
+    - name: run tests
+      run: go test ./... -v -race
 
-    - name: build tests
-      run: go test -c ./collector
+  build:
+    runs-on: ubuntu-latest
 
-    - name: docker build
-      run: docker build --pull --no-cache --rm -t=dns -f travis/Dockerfile .
+    steps:
+    - uses: actions/checkout@v2
 
-    - name: run tests in docker
-      run: docker run -v $PWD:/usr/src:ro -e TESTDATA_FILE_PATH=/usr/src/collector/testdata/dnsmasq.leases dns /bin/sh -c './collector.test -test.v'
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+
+    - name: build binary
+      run: go build
+    - uses: https://github.com/actions/upload-artifact@v3
+      with:
+        name: dnsmasq_exporter
+        path: dnsmasq_exporter
