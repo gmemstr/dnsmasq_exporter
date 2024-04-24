@@ -149,61 +149,68 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	var eg errgroup.Group
 
 	eg.Go(func() error {
-		msg := &dns.Msg{
-			MsgHdr: dns.MsgHdr{
-				Id:               dns.Id(),
-				RecursionDesired: true,
-			},
-			Question: []dns.Question{
-				question("cachesize.bind."),
-				question("insertions.bind."),
-				question("evictions.bind."),
-				question("misses.bind."),
-				question("hits.bind."),
-				question("auth.bind."),
-				question("servers.bind."),
-			},
+		questions := []string{
+			"cachesize.bind.",
+			"insertions.bind.",
+			"evictions.bind.",
+			"misses.bind.",
+			"hits.bind.",
+			"auth.bind.",
+			"servers.bind.",
 		}
-		in, _, err := c.cfg.DnsClient.Exchange(msg, c.cfg.DnsmasqAddr)
-		if err != nil {
-			return err
-		}
-		for _, a := range in.Answer {
-			txt, ok := a.(*dns.TXT)
-			if !ok {
-				continue
+		id := dns.Id()
+		for _, q := range questions {
+			msg := &dns.Msg{
+				MsgHdr: dns.MsgHdr{
+					Id: id,
+				},
+				Question: []dns.Question{
+					question(q),
+				},
 			}
-			switch txt.Hdr.Name {
-			case "servers.bind.":
-				for _, str := range txt.Txt {
-					arr := strings.Fields(str)
-					if got, want := len(arr), 3; got != want {
-						return fmt.Errorf("stats DNS record servers.bind.: unexpeced number of argument in record: got %d, want %d", got, want)
-					}
-					queries, err := strconv.ParseFloat(arr[1], 64)
-					if err != nil {
-						return err
-					}
-					failedQueries, err := strconv.ParseFloat(arr[2], 64)
-					if err != nil {
-						return err
-					}
-					ch <- prometheus.MustNewConstMetric(serversMetrics["queries"], prometheus.GaugeValue, queries, arr[0])
-					ch <- prometheus.MustNewConstMetric(serversMetrics["queries_failed"], prometheus.GaugeValue, failedQueries, arr[0])
-				}
-			default:
-				g, ok := floatMetrics[txt.Hdr.Name]
+
+			in, _, err := c.cfg.DnsClient.Exchange(msg, c.cfg.DnsmasqAddr)
+			if err != nil {
+				return err
+			}
+
+			for _, a := range in.Answer {
+				txt, ok := a.(*dns.TXT)
 				if !ok {
-					continue // ignore unexpected answer from dnsmasq
+					continue
 				}
-				if got, want := len(txt.Txt), 1; got != want {
-					return fmt.Errorf("stats DNS record %q: unexpected number of replies: got %d, want %d", txt.Hdr.Name, got, want)
+				switch txt.Hdr.Name {
+				case "servers.bind.":
+					for _, str := range txt.Txt {
+						arr := strings.Fields(str)
+						if got, want := len(arr), 3; got != want {
+							return fmt.Errorf("stats DNS record servers.bind.: unexpeced number of argument in record: got %d, want %d", got, want)
+						}
+						queries, err := strconv.ParseFloat(arr[1], 64)
+						if err != nil {
+							return err
+						}
+						failedQueries, err := strconv.ParseFloat(arr[2], 64)
+						if err != nil {
+							return err
+						}
+						ch <- prometheus.MustNewConstMetric(serversMetrics["queries"], prometheus.GaugeValue, queries, arr[0])
+						ch <- prometheus.MustNewConstMetric(serversMetrics["queries_failed"], prometheus.GaugeValue, failedQueries, arr[0])
+					}
+				default:
+					g, ok := floatMetrics[txt.Hdr.Name]
+					if !ok {
+						continue // ignore unexpected answer from dnsmasq
+					}
+					if got, want := len(txt.Txt), 1; got != want {
+						return fmt.Errorf("stats DNS record %q: unexpected number of replies: got %d, want %d", txt.Hdr.Name, got, want)
+					}
+					f, err := strconv.ParseFloat(txt.Txt[0], 64)
+					if err != nil {
+						return err
+					}
+					ch <- prometheus.MustNewConstMetric(g, prometheus.GaugeValue, f)
 				}
-				f, err := strconv.ParseFloat(txt.Txt[0], 64)
-				if err != nil {
-					return err
-				}
-				ch <- prometheus.MustNewConstMetric(g, prometheus.GaugeValue, f)
 			}
 		}
 		return nil
